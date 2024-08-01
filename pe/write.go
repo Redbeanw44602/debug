@@ -52,28 +52,30 @@ func (f *File) AddImportWithNewSection(dlls []ImgImportWithSymbols) error {
 	newDllBuf, newOffsets := f.writeNewImportNameSymbolBuffer(dlls)
 	var thunkSpace uint32
 
-	is64 := f.FileHeader.SizeOfOptionalHeader == sizeofOptionalHeader64
+	pe64 := f.FileHeader.SizeOfOptionalHeader == sizeofOptionalHeader64
 	var tempOffset uint32
 
 	// get length of buffer to be used for oft and first thunks
-	for _, offset := range newOffsets { // oft
+	for _, dll := range dlls { // oft
 		oftOffsets = append(oftOffsets, tempOffset)
-		if is64 {
-			thunkSpace += uint32(8 * len(offset.symbols))
+		if pe64 {
+			thunkSpace += uint32(8 * len(dll.Symbols))
 		} else {
-			thunkSpace += uint32(4 * len(offset.symbols))
+			thunkSpace += uint32(4 * len(dll.Symbols))
 		}
 		thunkSpace = align(thunkSpace, 16)
+		tempOffset += thunkSpace
 	}
 
-	for _, offset := range newOffsets { // fitst thunk
+	for _, dll := range dlls { // first thunk
 		firstThunkOffsets = append(firstThunkOffsets, tempOffset)
-		if is64 {
-			thunkSpace += uint32(8 * len(offset.symbols))
+		if pe64 {
+			thunkSpace += uint32(8 * len(dll.Symbols))
 		} else {
-			thunkSpace += uint32(4 * len(offset.symbols))
+			thunkSpace += uint32(4 * len(dll.Symbols))
 		}
 		thunkSpace = align(thunkSpace, 16)
+		tempOffset += thunkSpace
 	}
 
 	frontOffset := descSpace + thunkSpace // dll names are right after, then symbol names
@@ -82,12 +84,25 @@ func (f *File) AddImportWithNewSection(dlls []ImgImportWithSymbols) error {
 
 	// write oft and first thunks with virtual address
 	for i := 0; i < 2; i++ {
-		for j := range newOffsets {
-			for _, symOffset := range newOffsets[j].symbols {
-				if is64 {
-					newThunks = binary.LittleEndian.AppendUint64(newThunks, uint64(newSec.VirtualAddress+frontOffset+symOffset))
-				} else {
-					newThunks = binary.LittleEndian.AppendUint32(newThunks, newSec.VirtualAddress+frontOffset+symOffset)
+		for thunkIndex := range dlls {
+			var curIndex uint32
+			for _, symbol := range dlls[thunkIndex].Symbols {
+				for _, symOffset := range newOffsets[curIndex].symbols {
+					if pe64 {
+						if symbol.Ordinal != 0 {
+							newThunks = binary.LittleEndian.AppendUint64(newThunks, uint64(symbol.Ordinal)|0x8000000000000000)
+						} else {
+							newThunks = binary.LittleEndian.AppendUint64(newThunks, uint64(newSec.VirtualAddress+frontOffset+symOffset))
+							curIndex++
+						}
+					} else {
+						if symbol.Ordinal != 0 {
+							newThunks = binary.LittleEndian.AppendUint32(newThunks, uint32(symbol.Ordinal)|0x80000000)
+						} else {
+							newThunks = binary.LittleEndian.AppendUint32(newThunks, newSec.VirtualAddress+frontOffset+symOffset)
+							curIndex++
+						}
+					}
 				}
 			}
 			padLen := align(uint32(len(newThunks)), 16) - uint32(len(newThunks))
@@ -98,11 +113,11 @@ func (f *File) AddImportWithNewSection(dlls []ImgImportWithSymbols) error {
 	for i := range dlls {
 		index := i + len(origDlls)
 		importDescArr[index] = ImageImportDescriptor{
-			OriginalFirstThunk: newSec.VirtualAddress + oftOffsets[i],
-			TimeDateStamp: 0,
-			ForwarderChain: 0,
-			NameRVA: newSec.VirtualAddress + newOffsets[i].name,
-			FirstThunk: newSec.VirtualAddress + firstThunkOffsets[i],
+			OriginalFirstThunk: newSec.VirtualAddress + descSpace + oftOffsets[i],
+			TimeDateStamp:      0,
+			ForwarderChain:     0,
+			NameRVA:            newSec.VirtualAddress + descSpace + newOffsets[i].name,
+			FirstThunk:         newSec.VirtualAddress + descSpace + firstThunkOffsets[i],
 		}
 	}
 
@@ -110,7 +125,7 @@ func (f *File) AddImportWithNewSection(dlls []ImgImportWithSymbols) error {
 
 	// write descriptor part
 	binary.Write(&secBuffer, binary.LittleEndian, importDescArr)
-	secBuffer.Write(make([]byte, descSpace - uint32(binary.Size(importDescArr))))
+	secBuffer.Write(make([]byte, descSpace-uint32(binary.Size(importDescArr))))
 
 	// write oft and first thunk part
 	secBuffer.Write(newThunks)
@@ -119,16 +134,16 @@ func (f *File) AddImportWithNewSection(dlls []ImgImportWithSymbols) error {
 	secBuffer.Write(newDllBuf)
 
 	virtualSize := descSpace + thunkSpace + uint32(len(newDllBuf))
-	secBuffer.Write(make([]byte, f.FileAlign(virtualSize) - virtualSize))
+	secBuffer.Write(make([]byte, f.FileAlign(virtualSize)-virtualSize))
 
 	secReader := bytes.NewReader(secBuffer.Bytes())
 
-	newSec.SectionHeader.VirtualAddress = virtualSize
+	newSec.SectionHeader.VirtualSize = virtualSize
 	newSec.SectionHeader.Size = f.FileAlign(virtualSize)
 	newSec.Replace(secReader, secReader.Size())
 
 	f.Sections = append(f.Sections, newSec)
-	
+
 	// make dataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT] point to descriptor array(zero offset from virtual address)
 	switch opt := f.OptionalHeader.(type) {
 	case *OptionalHeader32:
