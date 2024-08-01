@@ -46,7 +46,7 @@ func (f *File) AddImportWithNewSection(dlls []ImgImportWithSymbols) error {
 		descSpace += 20
 	}
 
-	descSpace += uint32(len(dlls) * 20)
+	descSpace += uint32((len(dlls) + 1) * 20) // make space for indicating end of descriptor array(0 bytes)
 	descSpace = align(descSpace, 16)
 
 	newDllBuf, newOffsets := f.writeNewImportNameSymbolBuffer(dlls)
@@ -59,9 +59,9 @@ func (f *File) AddImportWithNewSection(dlls []ImgImportWithSymbols) error {
 	for _, dll := range dlls { // oft
 		oftOffsets = append(oftOffsets, tempOffset)
 		if pe64 {
-			thunkSpace += uint32(8 * len(dll.Symbols))
+			thunkSpace += uint32(8 * (len(dll.Symbols) + 1)) // add 1 for ending thunk
 		} else {
-			thunkSpace += uint32(4 * len(dll.Symbols))
+			thunkSpace += uint32(4 * (len(dll.Symbols) + 1)) // add 1 for ending thunk
 		}
 		thunkSpace = align(thunkSpace, 16)
 		tempOffset += thunkSpace
@@ -70,9 +70,9 @@ func (f *File) AddImportWithNewSection(dlls []ImgImportWithSymbols) error {
 	for _, dll := range dlls { // first thunk
 		firstThunkOffsets = append(firstThunkOffsets, tempOffset)
 		if pe64 {
-			thunkSpace += uint32(8 * len(dll.Symbols))
+			thunkSpace += uint32(8 * (len(dll.Symbols) + 1)) // add 1 for ending thunk
 		} else {
-			thunkSpace += uint32(4 * len(dll.Symbols))
+			thunkSpace += uint32(4 * (len(dll.Symbols) + 1)) // add 1 for ending thunk
 		}
 		thunkSpace = align(thunkSpace, 16)
 		tempOffset += thunkSpace
@@ -105,6 +105,14 @@ func (f *File) AddImportWithNewSection(dlls []ImgImportWithSymbols) error {
 					}
 				}
 			}
+
+			// add ending thunk with 0 value
+			if pe64 {
+				newThunks = binary.LittleEndian.AppendUint64(newThunks, 0)
+			} else {
+				newThunks = binary.LittleEndian.AppendUint32(newThunks, 0)
+			}
+
 			padLen := align(uint32(len(newThunks)), 16) - uint32(len(newThunks))
 			newThunks = append(newThunks, make([]byte, padLen)...)
 		}
@@ -116,7 +124,7 @@ func (f *File) AddImportWithNewSection(dlls []ImgImportWithSymbols) error {
 			OriginalFirstThunk: newSec.VirtualAddress + descSpace + oftOffsets[i],
 			TimeDateStamp:      0,
 			ForwarderChain:     0,
-			NameRVA:            newSec.VirtualAddress + descSpace + newOffsets[i].name,
+			NameRVA:            newSec.VirtualAddress + frontOffset + newOffsets[i].name,
 			FirstThunk:         newSec.VirtualAddress + descSpace + firstThunkOffsets[i],
 		}
 	}
