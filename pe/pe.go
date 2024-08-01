@@ -75,6 +75,14 @@ type OptionalHeader32 struct {
 	DataDirectory               [16]DataDirectory
 }
 
+func (o *OptionalHeader32) GetSectionAlignment() uint32 {
+	return o.SectionAlignment
+}
+
+func (o *OptionalHeader32) GetFileAlignment() uint32 {
+	return o.FileAlignment
+}
+
 type OptionalHeader64 struct {
 	Magic                       uint16
 	MajorLinkerVersion          uint8
@@ -106,6 +114,14 @@ type OptionalHeader64 struct {
 	LoaderFlags                 uint32
 	NumberOfRvaAndSizes         uint32
 	DataDirectory               [16]DataDirectory
+}
+
+func (o *OptionalHeader64) GetSectionAlignment() uint32 {
+	return o.SectionAlignment
+}
+
+func (o *OptionalHeader64) GetFileAlignment() uint32 {
+	return o.FileAlignment
 }
 
 const (
