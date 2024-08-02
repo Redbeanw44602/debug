@@ -1,19 +1,41 @@
 package pe
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
+	"strconv"
 )
 
-// ImportDirectory entry
-type ImportDirectory struct {
+type ImageImportDescriptor struct {
 	OriginalFirstThunk uint32
 	TimeDateStamp      uint32
 	ForwarderChain     uint32
 	NameRVA            uint32
 	FirstThunk         uint32
+}
+
+// ImportDirectory entry
+type ImportDirectory struct {
+	ImageImportDescriptor
 
 	DllName string
+}
+
+// name with ascii letters
+type ImgImportWithSymbols struct {
+	DllName string
+	Symbols []ImportSymbol
+}
+
+// function in DLL
+type ImportSymbol struct {
+	// ORDINAL
+	Ordinal uint16 // max 0xffff, used if not 0
+	// IMAGE_IMPORT_BY_NAME
+	Hint uint16
+	Name string // ANSI function name
+	// _   '\0' byte
 }
 
 // ImgDelayDescr entry for delayloaded libraries
@@ -101,7 +123,8 @@ func (f *File) ImportedSymbols() ([]string, error) {
 					break
 				}
 				if va&0x8000000000000000 > 0 { // is Ordinal
-					// TODO add dynimport ordinal support.
+					ord := va & 0x00000000000ffff
+					all = append(all, "Ordinal #"+strconv.FormatUint(ord, 10)) // add Ordinal #(num)
 				} else {
 					fn, _ := getString(*sectionData, int(uint32(va)-ds.VirtualAddress+2))
 					all = append(all, fn+":"+dt.DllName)
@@ -113,8 +136,8 @@ func (f *File) ImportedSymbols() ([]string, error) {
 					break
 				}
 				if va&0x80000000 > 0 { // is Ordinal
-					// TODO add dynimport ordinal support.
-					//ord := va&0x0000FFFF
+					ord := va & 0x0000ffff
+					all = append(all, "Ordinal #"+strconv.FormatUint(uint64(ord), 10))
 				} else {
 					fn, _ := getString(*sectionData, int(va-ds.VirtualAddress+2))
 					all = append(all, fn+":"+dt.DllName)
@@ -175,6 +198,61 @@ func (f File) sectionFromDirectoryEntry(directory uint32) (*Section, DataDirecto
 		}
 	}
 	return ds, idd
+}
+
+// new dll relative offset for writing section
+type newDllDirOffset struct {
+	name    uint32 // for name rva
+	symbols []uint32 // for oft and first thunk
+}
+
+func (f *File) writeNewImportNameSymbolBuffer(dlls []ImgImportWithSymbols) ([]byte, []newDllDirOffset) {
+	var importData bytes.Buffer
+	var curOffset uint32 // offset of dll name and IMAGE_IMPORT_BY_NAME in buffer
+
+	newOffsets := make([]newDllDirOffset, len(dlls))
+
+	// write name of dlls with 2 bytes alignment
+	for i := range dlls {
+		newOffsets[i].name = curOffset
+
+		n, _ := importData.Write([]byte(dlls[i].DllName + "\x00"))
+		curOffset += uint32(n)
+
+		if curOffset&1 != 0 {
+			importData.WriteByte(0) // write to align with 2 bytes
+			curOffset++
+		}
+	}
+
+	// add padding for separating data
+	n, _ := importData.Write(make([]byte, align(curOffset, 16)-curOffset))
+	curOffset += uint32(n)
+
+	// write data for symbol(function names of each dll)
+	for i := range dlls {
+		for _, sym := range dlls[i].Symbols {
+			if sym.Ordinal == 0 {
+				newOffsets[i].symbols = append(newOffsets[i].symbols, curOffset)
+				importByName := []byte{}
+				importByName = binary.LittleEndian.AppendUint16(importByName, sym.Hint)
+				importByName = append(importByName, sym.Name+"\x00"...)
+
+				n, _ = importData.Write(importByName)
+				curOffset += uint32(n)
+
+				if n&1 != 0 {
+					importData.WriteByte(0)
+					curOffset++
+				}
+			}
+		}
+
+		n, _ = importData.Write(make([]byte, align(curOffset, 16)-curOffset))
+		curOffset += uint32(n)
+	}
+
+	return importData.Bytes(), newOffsets
 }
 
 // ImportDelayDirectoryTable - returns the Import Directory Table, a pointer to the section, and the section raw data

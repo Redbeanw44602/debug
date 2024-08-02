@@ -97,13 +97,18 @@ func (s *Section) Replace(reader io.ReaderAt, length int64) {
 
 // Section Flags (Characteristics field)
 const (
+	IMAGE_SCN_CNT_INITIALIZED_DATA   = 0x00000040 // Section contains initialized data
+	IMAGE_SNC_CNT_UNINITIALIZED_DATA = 0x00000080 // Section contains uninitialized data
+
 	IMAGE_SCN_CNT_CODE    = 0x00000020 // Section contains code
 	IMAGE_SCN_MEM_EXECUTE = 0x20000000 // Section is executable
 	IMAGE_SCN_MEM_READ    = 0x40000000 // Section is readable
+	IMAGE_SCN_MEM_WRITE   = 0x80000000 // Section is writable
 
 	IMAGE_FILE_RELOCS_STRIPPED = 0x0001 // Relocation info stripped from file
 
 	IMAGE_DLLCHARACTERISTICS_NX_COMPAT = 0x0100 // Image is NX compatable
 
 	IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE = 0x0040 // DLL can move
+
 )

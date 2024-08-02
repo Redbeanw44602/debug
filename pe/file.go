@@ -22,6 +22,17 @@ const (
 	seekCurrent = 1
 )
 
+func align(a uint32, size uint32) uint32 {
+	size--
+	return (a + size) & ^size
+}
+
+// OptionalHeader interface for OptionalHeader32 and OptionalHeader64
+type OptionalHeader interface {
+	GetSectionAlignment() uint32
+	GetFileAlignment() uint32
+}
+
 // A File represents an open PE file.
 type File struct {
 	DosHeader
@@ -29,7 +40,7 @@ type File struct {
 	DosStub    [64]byte // TODO(capnspacehook) make slice and correctly parse any DOS stub
 	RichHeader []byte
 	FileHeader
-	OptionalHeader      interface{} // of type *OptionalHeader32 or *OptionalHeader64
+	OptionalHeader      OptionalHeader // of type *OptionalHeader32 or *OptionalHeader64
 	Sections            []*Section
 	BaseRelocationTable *[]RelocationTableEntry
 	Symbols             []*Symbol    // COFF symbols with auxiliary symbol records removed
@@ -441,7 +452,17 @@ func (e *FormatError) Error() string {
 	return "unknown error"
 }
 
-// RVAToFileOffset Converts a Relative offset to the actual offset in the file.
+// FileAlign returns offset aligned with raw file alignment
+func (f *File) FileAlign(addr uint32) uint32 {
+	return align(addr, f.OptionalHeader.GetFileAlignment())
+}
+
+// SectionAlign returns offset aligned with virtual memory alignment
+func (f *File) SectionAlign(addr uint32) uint32 {
+	return align(addr, f.OptionalHeader.GetSectionAlignment())
+}
+
+// RVAToFileOffset converts a relative offset to the actual offset in the file
 func (f *File) RVAToFileOffset(rva uint32) uint32 {
 	var offset uint32
 	for _, section := range f.Sections {
@@ -450,6 +471,17 @@ func (f *File) RVAToFileOffset(rva uint32) uint32 {
 		}
 	}
 	return offset
+}
+
+// FileOffsetToRVA converts an actual offset in the file to the relative offset
+func (f *File) FileOffsetToRVA(offset uint32) uint32 {
+	var rva uint32
+	for _, section := range f.Sections {
+		if offset >= section.SectionHeader.Offset && offset <= (section.SectionHeader.Offset + section.SectionHeader.Size) {
+			rva = section.SectionHeader.VirtualAddress + (offset - section.SectionHeader.Offset) 
+		}
+	}
+	return rva
 }
 
 // IsManaged returns true if the loaded PE file references the CLR header (aka is a .net exe)
