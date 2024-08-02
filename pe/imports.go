@@ -124,7 +124,7 @@ func (f *File) ImportedSymbols() ([]string, error) {
 				}
 				if va&0x8000000000000000 > 0 { // is Ordinal
 					ord := va & 0x00000000000ffff
-					all = append(all, "Ordinal #"+strconv.FormatUint(ord, 10)) // add Ordinal # (num)
+					all = append(all, "Ordinal #"+strconv.FormatUint(ord, 10)) // add Ordinal #(num)
 				} else {
 					fn, _ := getString(*sectionData, int(uint32(va)-ds.VirtualAddress+2))
 					all = append(all, fn+":"+dt.DllName)
@@ -208,7 +208,7 @@ type newDllDirOffset struct {
 
 func (f *File) writeNewImportNameSymbolBuffer(dlls []ImgImportWithSymbols) ([]byte, []newDllDirOffset) {
 	var importData bytes.Buffer
-	var curOffset uint32 // offset of IMAGE_IMPORT_BY_NAME in buffer
+	var curOffset uint32 // offset of dll name and IMAGE_IMPORT_BY_NAME in buffer
 
 	newOffsets := make([]newDllDirOffset, len(dlls))
 

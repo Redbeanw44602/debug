@@ -153,13 +153,16 @@ func (f *File) AddImportWithNewSection(dlls []ImgImportWithSymbols) error {
 	f.Sections = append(f.Sections, newSec)
 
 	// make dataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT] point to descriptor array(zero offset from virtual address)
+	// increase the SizeOfImage in OptionalHeader according to image with new section
 	switch opt := f.OptionalHeader.(type) {
 	case *OptionalHeader32:
 		opt.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress = newSec.VirtualAddress
 		opt.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].Size = newSec.VirtualSize
+		opt.SizeOfImage = f.SectionAlign(newSec.VirtualAddress + newSec.VirtualSize)
 	case *OptionalHeader64:
 		opt.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress = newSec.VirtualAddress
 		opt.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].Size = newSec.VirtualSize
+		opt.SizeOfImage = f.SectionAlign(newSec.VirtualAddress + newSec.VirtualSize)
 	}
 
 	return nil
